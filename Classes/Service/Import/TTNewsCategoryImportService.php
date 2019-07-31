@@ -26,13 +26,14 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 class TTNewsCategoryImportService extends CategoryImportService {
 
 	/**
-	 * @var \TYPO3\CMS\Core\Database\DatabaseConnection
+	 * @var \Tx_Rnbase_Database_Connection
 	 */
 	protected $databaseConnection;
 
 	public function __construct() {
 		parent::__construct();
-		$this->databaseConnection = $GLOBALS['TYPO3_DB'];
+//		$this->databaseConnection = $GLOBALS['TYPO3_DB'];
+		$this->databaseConnection = \Tx_Rnbase_Database_Connection::getInstance();
 	}
 
 	public function import(array $importArray) {
@@ -56,27 +57,35 @@ class TTNewsCategoryImportService extends CategoryImportService {
 
 		/* assign imported categories to be_groups or be_users */
 		$whereClause = 'tt_news_categorymounts != \'\'' . BackendUtility::deleteClause($table);
-		$beGroupsOrUsersWithTtNewsCategorymounts = $this->databaseConnection->exec_SELECTgetRows('*', $table, $whereClause);
+//		$beGroupsOrUsersWithTtNewsCategorymounts = $this->databaseConnection->exec_SELECTgetRows('*', $table, $whereClause);
+		$beGroupsOrUsersWithTtNewsCategorymounts = $this->databaseConnection->doSelect('*', $table, [
+		    'where'=>$whereClause,
+		    'enablefieldsoff' => 1
+		]);
 
-		$data = array();
+		$data = [];
 
 		foreach ((array)$beGroupsOrUsersWithTtNewsCategorymounts as $beGroupOrUser) {
 			$ttNewsCategoryPermissions = GeneralUtility::trimExplode(',', $beGroupOrUser['tt_news_categorymounts']);
-			$sysCategoryPermissions = array();
+			$sysCategoryPermissions = [];
 			foreach ($ttNewsCategoryPermissions as $ttNewsCategoryPermissionUid) {
 				$whereClause = 'import_source = \'TT_NEWS_CATEGORY_IMPORT\' AND import_id = ' . $ttNewsCategoryPermissionUid;
-				$sysCategory = $this->databaseConnection->exec_SELECTgetSingleRow('uid', 'sys_category', $whereClause);
+				$sysCategory = $this->databaseConnection->doSelect('uid', 'sys_category', [
+				    'where' => $whereClause,
+				    'enablefieldsoff' => 1
+				]);
+				$sysCategory = reset($sysCategory);
 				if (!empty($sysCategory)) {
 					$sysCategoryPermissions[] = $sysCategory['uid'];
 				}
 			}
 			if (count($sysCategoryPermissions)) {
-				$data[$table][$beGroupOrUser['uid']] = array(
+				$data[$table][$beGroupOrUser['uid']] = [
 					'category_perms' => implode(',', $sysCategoryPermissions) . ',' . $beGroupOrUser['category_perms']
-				);
+				];
 			}
 		}
-		$dataHandler->start($data, array());
+		$dataHandler->start($data, []);
 		$dataHandler->process_datamap();
 	}
 

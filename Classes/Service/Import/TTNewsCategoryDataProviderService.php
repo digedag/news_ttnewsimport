@@ -41,13 +41,18 @@ class TTNewsCategoryDataProviderService implements DataProviderServiceInterface,
 	 * @return integer
 	 */
 	public function getTotalRecordCount() {
-		$res = $GLOBALS['TYPO3_DB']->exec_SELECTquery('count(*)',
-			'tt_news_cat',
-			'deleted=0'
-		);
+	    $rows = \Tx_Rnbase_Database_Connection::getInstance()->doSelect('count(uid) as cnt', 'tt_news_cat', [
+	        'enablefieldsoff' => 1,
+	        'where' => 'deleted=0',
+	    ]);
+	    $count = $rows[0]['cnt'];
+// 	    $res = $GLOBALS['TYPO3_DB']->exec_SELECTquery('count(*)',
+// 			'tt_news_cat',
+// 			'deleted=0'
+// 		);
 
-		list($count) = $GLOBALS['TYPO3_DB']->sql_fetch_row($res);
-		$GLOBALS['TYPO3_DB']->sql_free_result($res);
+// 		list($count) = $GLOBALS['TYPO3_DB']->sql_fetch_row($res);
+// 		$GLOBALS['TYPO3_DB']->sql_free_result($res);
 
 		return (int)$count;
 	}
@@ -60,17 +65,26 @@ class TTNewsCategoryDataProviderService implements DataProviderServiceInterface,
 	 * @return array
 	 */
 	public function getImportData($offset = 0, $limit = 200) {
-		$importData = array();
+		$importData = [];
+		$db = \Tx_Rnbase_Database_Connection::getInstance();
 
-		$res = $GLOBALS['TYPO3_DB']->exec_SELECTquery('*',
-			'tt_news_cat',
-			'deleted=0',
-			'',
-			'',
-			$offset . ',' . $limit
-		);
+		$rows = $db->doSelect('*', 'tt_news_cat', [
+		    'enablefieldsoff' => 1,
+		    'where' => 'deleted=0',
+		    'offset' => $offset,
+		    'limit' => $limit,
+		]);
+		
+// 		$res = $GLOBALS['TYPO3_DB']->exec_SELECTquery('*',
+// 			'tt_news_cat',
+// 			'deleted=0',
+// 			'',
+// 			'',
+// 			$offset . ',' . $limit
+// 		);
 
-		while ($row = $GLOBALS['TYPO3_DB']->sql_fetch_assoc($res)) {
+//		while ($row = $GLOBALS['TYPO3_DB']->sql_fetch_assoc($res)) {
+		foreach ($rows as $row) {
 			$importData[] = array(
 				'pid' => $row['pid'],
 				'hidden' => $row['hidden'],
@@ -89,7 +103,7 @@ class TTNewsCategoryDataProviderService implements DataProviderServiceInterface,
 				'import_source' => $this->importSource
 			);
 		}
-		$GLOBALS['TYPO3_DB']->sql_free_result($res);
+//		$GLOBALS['TYPO3_DB']->sql_free_result($res);
 
 		return $importData;
 	}

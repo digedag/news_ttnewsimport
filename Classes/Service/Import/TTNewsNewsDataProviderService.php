@@ -43,13 +43,20 @@ class TTNewsNewsDataProviderService implements DataProviderServiceInterface, \TY
 	 * @return integer
 	 */
 	public function getTotalRecordCount() {
-		$res = $GLOBALS['TYPO3_DB']->exec_SELECTquery('count(*)',
-			'tt_news',
-			'deleted=0 AND t3ver_oid = 0 AND t3ver_wsid = 0'
-		);
 
-		list($count) = $GLOBALS['TYPO3_DB']->sql_fetch_row($res);
-		$GLOBALS['TYPO3_DB']->sql_free_result($res);
+	    $rows = \Tx_Rnbase_Database_Connection::getInstance()->doSelect('count(uid) as cnt', 'tt_news', [
+	        'enablefieldsoff' => 1,
+	        'where' => 'deleted=0 AND t3ver_oid = 0 AND t3ver_wsid = 0',
+	    ]);
+	    $count = $rows[0]['cnt'];
+	    
+// 	    $res = $GLOBALS['TYPO3_DB']->exec_SELECTquery('count(*)',
+// 			'tt_news',
+// 			'deleted=0 AND t3ver_oid = 0 AND t3ver_wsid = 0'
+// 		);
+
+// 		list($count) = $GLOBALS['TYPO3_DB']->sql_fetch_row($res);
+// 		$GLOBALS['TYPO3_DB']->sql_free_result($res);
 
 		return (int)$count;
 	}
@@ -62,18 +69,27 @@ class TTNewsNewsDataProviderService implements DataProviderServiceInterface, \TY
 	 * @return array
 	 */
 	public function getImportData($offset = 0, $limit = 50) {
-		$importData = array();
+		$importData = [];
 
-		$res = $GLOBALS['TYPO3_DB']->exec_SELECTquery('*',
-			'tt_news',
-			'deleted=0 AND t3ver_oid = 0 AND t3ver_wsid = 0',
-			'',
-			'sys_language_uid ASC',
-			$offset . ',' . $limit
-		);
+// 		$res = $GLOBALS['TYPO3_DB']->exec_SELECTquery('*',
+// 			'tt_news',
+// 			'deleted=0 AND t3ver_oid = 0 AND t3ver_wsid = 0',
+// 			'',
+// 			'sys_language_uid ASC',
+// 			$offset . ',' . $limit
+// 		);
 
-		while ($row = $GLOBALS['TYPO3_DB']->sql_fetch_assoc($res)) {
-
+		$rows = \Tx_Rnbase_Database_Connection::getInstance()->doSelect('*', 'tt_news', [
+		    'enablefieldsoff' => 1,
+		    'where' => 'deleted=0 AND t3ver_oid = 0 AND t3ver_wsid = 0',
+		    'orderby' => 'sys_language_uid ASC',
+		    'offset' => $offset,
+		    'limit' => $limit,
+		]);
+		
+//		while ($row = $GLOBALS['TYPO3_DB']->sql_fetch_assoc($res)) {
+        foreach ($rows as $row) {
+		        
 			$importData[] = array(
 				'pid' => $row['pid'],
 				'hidden' => $row['hidden'],
@@ -106,7 +122,7 @@ class TTNewsNewsDataProviderService implements DataProviderServiceInterface, \TY
 				'import_source' => $this->importSource
 			);
 		}
-		$GLOBALS['TYPO3_DB']->sql_free_result($res);
+//		$GLOBALS['TYPO3_DB']->sql_free_result($res);
 
 		return $importData;
 	}
@@ -154,15 +170,21 @@ class TTNewsNewsDataProviderService implements DataProviderServiceInterface, \TY
 	protected function getCategories($newsUid) {
 		$categories = array();
 
-		$res = $GLOBALS['TYPO3_DB']->exec_SELECTquery('*',
-			'tt_news_cat_mm',
-			'uid_local=' . $newsUid);
+		$rows = \Tx_Rnbase_Database_Connection::getInstance()->doSelect('*', 'tt_news_cat_mm', [
+		    'enablefieldsoff' => 1,
+		    'where' => 'uid_local=' . $newsUid,
+		]);
+		
+// 		$res = $GLOBALS['TYPO3_DB']->exec_SELECTquery('*',
+// 			'tt_news_cat_mm',
+// 			'uid_local=' . $newsUid);
 
-		while ($row = $GLOBALS['TYPO3_DB']->sql_fetch_assoc($res)) {
+//		while ($row = $GLOBALS['TYPO3_DB']->sql_fetch_assoc($res)) {
+		foreach ($rows as $row) {
 			$categories[] = $row['uid_foreign'];
 		}
 
-		$GLOBALS['TYPO3_DB']->sql_free_result($res);
+//		$GLOBALS['TYPO3_DB']->sql_free_result($res);
 
 		return $categories;
 	}

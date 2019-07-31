@@ -7,6 +7,7 @@
   "keywords": ["TYPO3 CMS"],
   "require": {
     "typo3/cms-core": ">=6.2.4,<9.5.99",
+    "digedag/rn-base": ">=1.10.0",
     "georgringer/news": ">=3.0.0"
   },
   "autoload": {
