@@ -24,7 +24,7 @@ use TYPO3\CMS\Extbase\Mvc\Controller\CommandController;
 class TtNewsPluginMigrateCommandController extends CommandController
 {
 
-    const WHERE_CLAUSE = 'deleted=0 AND list_type="9" AND CType="list"';
+    const WHERE_CLAUSE = 'tt_content.deleted=0 AND list_type="9" AND CType="list"';
 
     /**
      * Check if any plugin needs to be migrated
@@ -34,19 +34,19 @@ class TtNewsPluginMigrateCommandController extends CommandController
         $this->outputDashedLine();
         $this->outputLine('List of plugins:');
         $this->outputLine('%-2s% -5s %s',
-            array(' ', $this->getNewsPluginCount('hidden=0 AND news_ttnewsimport_new_id != ""'), 'already migrated'));
-        $this->outputLine('%-2s% -5s %s', array(
+            [' ', $this->getNewsPluginCount('tt_content.hidden=0 AND news_ttnewsimport_new_id != ""'), 'already migrated']);
+        $this->outputLine('%-2s% -5s %s', [
             ' ',
-            $this->getNewsPluginCount('hidden=1 AND news_ttnewsimport_new_id != ""'),
+            $this->getNewsPluginCount('tt_content.hidden=1 AND news_ttnewsimport_new_id != ""'),
             'already migrated but hidden'
-        ));
+        ]);
         $this->outputLine('%-2s% -5s %s',
-            array(' ', $this->getNewsPluginCount('hidden=0 AND news_ttnewsimport_new_id = ""'), 'not yet migrated'));
-        $this->outputLine('%-2s% -5s %s', array(
+            [' ', $this->getNewsPluginCount('tt_content.hidden=0 AND news_ttnewsimport_new_id = ""'), 'not yet migrated']);
+        $this->outputLine('%-2s% -5s %s', [
             ' ',
-            $this->getNewsPluginCount('hidden=1 AND news_ttnewsimport_new_id = ""'),
+            $this->getNewsPluginCount('tt_content.hidden=1 AND news_ttnewsimport_new_id = ""'),
             'not yet migrated and hidden'
-        ));
+        ]);
         $this->outputDashedLine();
         $this->outputLine();
     }
@@ -57,7 +57,8 @@ class TtNewsPluginMigrateCommandController extends CommandController
     public function runCommand()
     {
         /** @var \BeechIt\NewsTtnewsimport\Service\Migrate\TtNewsPluginMigrate $migrate */
-        $migrate = $this->objectManager->get('BeechIt\\NewsTtnewsimport\\Service\\Migrate\\TtNewsPluginMigrate');
+        $migrate = $this->objectManager->get(
+            'BeechIt\\NewsTtnewsimport\\Service\\Migrate\\TtNewsPluginMigrate', $this->output);
         $migrate->run();
     }
 
@@ -67,7 +68,8 @@ class TtNewsPluginMigrateCommandController extends CommandController
     public function replaceCommand()
     {
         /** @var \BeechIt\NewsTtnewsimport\Service\Migrate\TtNewsPluginMigrate $migrate */
-        $migrate = $this->objectManager->get('BeechIt\\NewsTtnewsimport\\Service\\Migrate\\TtNewsPluginMigrate');
+        $migrate = $this->objectManager->get(
+            'BeechIt\\NewsTtnewsimport\\Service\\Migrate\\TtNewsPluginMigrate', $this->output);
         $migrate->replace();
     }
 
@@ -78,8 +80,52 @@ class TtNewsPluginMigrateCommandController extends CommandController
      */
     public function removeOldPluginsCommand($delete = false)
     {
-        $update = $delete ? array('deleted' => 1) : array('hidden' => 1);
-        $this->getDatabaseConnection()->exec_UPDATEquery('tt_content', self::WHERE_CLAUSE, $update);
+        $db = \Tx_Rnbase_Database_Connection::getInstance();
+        $update = [($delete ? 'deleted' : 'hidden') => 2];
+        $res = $db->doUpdate('tt_content', self::WHERE_CLAUSE, $update);
+        $this->output->output("\nFinished. Affected rows: %d\n", [$res]);
+        $this->outputDashedLine();
+        $this->outputLine();
+    }
+
+    public function resetOldPluginsCommand()
+    {
+        $db = \Tx_Rnbase_Database_Connection::getInstance();
+        $fields = ['deleted', 'hidden'];
+        foreach ($fields as $field) {
+            $update = [$field => 0];
+            $res = $db->doUpdate('tt_content', $field.'=2 AND list_type="9" AND CType="list"', $update);
+            //            $res = $this->getDatabaseConnection()->exec_UPDATEquery('tt_content', $field.'=2 AND list_type="9" AND CType="list"', $update);
+            $this->output->output("\n%s affected rows: %d", [$field, $res]);
+        }
+        $this->output->output("\nFinished.\n");
+    }
+
+    /**
+     * Remove tt_news records and categories
+     *
+     */
+    public function removeOldNewsCommand()
+    {
+        $db = \Tx_Rnbase_Database_Connection::getInstance();
+        $update = ['deleted' => 2];
+        $res = $db->doUpdate('tt_news', 'deleted=0', $update);
+        $this->output->output("\nAffected rows in tt_news: %d", [$res]);
+        $res = $db->doUpdate('tt_news_cat', 'deleted=0', $update);
+        $this->output->output("\nAffected rows in tt_news_cat: %d", [$res]);
+        $this->output->output("\nFinished.\n");
+    }
+
+    public function resetOldNewsCommand()
+    {
+        $db = \Tx_Rnbase_Database_Connection::getInstance();
+        $update = ['deleted' => 0];
+        $res = $db->doUpdate('tt_news', 'deleted=2', $update);
+        $this->output->output("Affected rows in tt_news: %d", [$res]);
+        $res = $db->doUpdate('tt_news_cat', 'deleted=2', $update);
+        $this->output->output("\nAffected rows in tt_news_cat: %d\n", [$res]);
+
+        $this->output->output("\nFinished.\n");
     }
 
     /**
@@ -90,11 +136,15 @@ class TtNewsPluginMigrateCommandController extends CommandController
      */
     protected function getNewsPluginCount($additionalWhere)
     {
-        return $this->getDatabaseConnection()->exec_SELECTcountRows(
-            '*',
-            'tt_content',
-            self::WHERE_CLAUSE . ' AND ' . $additionalWhere
+        $rows = $this->getDatabaseConnection()->doSelect(
+            'count(tt_content.uid) as cnt',
+            ['table'=>'tt_content', 'clause'=>'tt_content JOIN pages ON pages.uid = tt_content.pid'],
+            [
+                'where' => self::WHERE_CLAUSE . ' AND pages.deleted = 0 AND ' . $additionalWhere,
+                'enablefieldsoff' => 1,
+            ]
         );
+        return (int) $rows[0]['cnt'];
     }
 
     /**
@@ -106,10 +156,10 @@ class TtNewsPluginMigrateCommandController extends CommandController
     }
 
     /**
-     * @return \TYPO3\CMS\Core\Database\DatabaseConnection
+     * @return \Tx_Rnbase_Database_Connection
      */
     protected function getDatabaseConnection()
     {
-        return $GLOBALS['TYPO3_DB'];
+        return \Tx_Rnbase_Database_Connection::getInstance();
     }
 }

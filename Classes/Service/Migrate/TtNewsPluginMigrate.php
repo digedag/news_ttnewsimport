@@ -7,49 +7,78 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 class TtNewsPluginMigrate
 {
 
+    protected $output;
+    protected $stats = [];
+
     /** @var \TYPO3\CMS\Core\Log\Logger */
     protected $logger;
 
     /** @var array */
-    protected $categories = array();
+    protected $categories = [];
 
-    /** @var \TYPO3\CMS\Extbase\Service\FlexFormService */
+    /** @var \TYPO3\CMS\Core\Service\FlexFormService */
     protected $flexFormService;
 
-    protected $fieldToCopy = 'header,CType,header_position,header_link,header_layout,bodytext,layout,starttime,endtime,pages,colPos,subheader,spaceBefore,spaceAfter,fe_group,sectionIndex,linkToTop,section_frame,date,recursive,sys_language_uid';
+    protected $fieldToCopy = 'header,CType,header_position,header_link,header_layout,bodytext,layout,starttime,endtime,pages,colPos,subheader,spaceBefore,spaceAfter,fe_group,sectionIndex,linkToTop,date,recursive,sys_language_uid';
 
     protected $newsFlexConfig = array();
 
-    public function __construct()
+    /**
+     *
+     * @param \TYPO3\CMS\Extbase\Mvc\Cli\ConsoleOutput $output
+     */
+    public function __construct(\TYPO3\CMS\Extbase\Mvc\Cli\ConsoleOutput $output)
     {
+        $this->output = $output;
         $this->logger = GeneralUtility::makeInstance('TYPO3\CMS\Core\Log\LogManager')->getLogger(__CLASS__);
-        $this->flexFormService = GeneralUtility::makeInstance('TYPO3\\CMS\\Extbase\\Service\\FlexFormService');
+        $this->flexFormService = GeneralUtility::makeInstance('TYPO3\\CMS\\Core\\Service\\FlexFormService');
         $url = ExtensionManagementUtility::extPath('news_ttnewsimport') . 'Resources/Private/Template/flexform.txt';
         $this->newsFlexConfig = json_decode(GeneralUtility::getUrl($url), true);
-        $this->categories = $this->getDatabaseConnection()->exec_SELECTgetRows(
+        $categories = $this->getDatabaseConnection()->doSelect(
             'uid,import_id,title',
             'sys_category',
-            'import_source="TT_NEWS_CATEGORY_IMPORT"',
-            '', '', '', 'import_id');
+            [
+                'where' => 'import_source="TT_NEWS_CATEGORY_IMPORT"',
+            ]
+        );
+        foreach ($categories as $catRow) {
+            $this->categories[$catRow['import_id']] = $catRow;
+        }
     }
 
     public function run()
     {
         $rows = $this->getTtnewsPluginRows();
 
+        $cnt = 0;
         foreach ($rows as $pluginRow) {
+            $cnt += 1;
             if ($pluginRow['news_ttnewsimport_new_id'] == 0) {
                 $newId = $this->createPluginBelowExisting($pluginRow);
                 if ($newId === 0) {
+                    \tx_rnbase_util_Debug::debug($pluginRow, __FILE__.':'.__LINE__); // TODO: remove me
+                    $this->output->outputLine(
+                        sprintf('An empty content element could not be created for plugin with uid %d on pid %d', $pluginRow['uid'], $pluginRow['pid']));
                     throw new \RuntimeException('An empty content element could not be created');
                 }
 
                 $pluginRow['news_ttnewsimport_new_id'] = $newId;
-                $this->getDatabaseConnection()->exec_UPDATEquery('tt_content', 'uid=' . $pluginRow['uid'],
-                    array('news_ttnewsimport_new_id' => $newId));
+                $this->getDatabaseConnection()->doUpdate('tt_content', 'uid=' . $pluginRow['uid'],
+                    ['news_ttnewsimport_new_id' => $newId]);
             }
 
             $this->migrate($pluginRow);
+
+            $this->output->output('.');
+            if ($cnt % 50 == 0) {
+                $this->output->output("\n");
+            }
+        }
+
+        $this->output->outputLine("\nConverted plugins views");
+        $this->output->outputLine('%\'-+15s', ['-']);
+        foreach ($this->stats as $view => $cnt) {
+            $this->output->outputLine('% -10s: % -5s', [$view, $cnt]);
         }
     }
 
@@ -61,12 +90,12 @@ class TtNewsPluginMigrate
         $rows = $this->getTtnewsPluginRows();
 
         foreach ($rows as $pluginRow) {
-            $update = array(
+            $update = [
                 'list_type' => 'news_pi1',
                 'pi_flexform' => $this->createFlexForm($pluginRow['pi_flexform'])
-            );
+            ];
 
-            $this->getDatabaseConnection()->exec_UPDATEquery(
+            $this->getDatabaseConnection()->doUpdate(
                 'tt_content',
                 'uid=' . $pluginRow['uid'],
                 $update
@@ -90,17 +119,23 @@ class TtNewsPluginMigrate
 
         // if the content element is a translation and got a parent, set the correct parent
         if ($row['sys_language_uid'] > 0 && $row['l18n_parent'] > 0) {
-            $parentRow = $this->getDatabaseConnection()->exec_SELECTgetSingleRow(
+            $parentRow = $this->getDatabaseConnection()->doSelect(
                 'uid',
                 'tt_content',
-                'news_ttnewsimport_new_id=' . $row['l18n_parent']);
+                [
+                    'where' => 'news_ttnewsimport_new_id=' . $row['l18n_parent'],
+                    'enablefieldsoff' => 1,
+                ]
+            );
+            $parentRow = reset($parentRow);
             if (is_array($parentRow)) {
                 $update['l18n_parent'] = $parentRow['uid'];
             }
         }
 
-        $this->getDatabaseConnection()->exec_UPDATEquery('tt_content', 'uid=' . $row['news_ttnewsimport_new_id'],
+        $this->getDatabaseConnection()->doUpdate('tt_content', 'uid=' . $row['news_ttnewsimport_new_id'],
             $update);
+
     }
 
     /**
@@ -121,6 +156,7 @@ class TtNewsPluginMigrate
                     if ($value === 'VERSION_PREVIEW') {
                         $this->addFieldToArray($new, '1', 'settings.previewHiddenRecords');
                     }
+                    $this->stats[$value] = !isset($this->stats[$value]) ? 1 : $this->stats[$value] + 1;
                     break;
                 case 'listOrderBy':
                     $this->addFieldToArray($new, $this->getValueMap($key, $value), 'settings.orderBy');
@@ -202,12 +238,17 @@ class TtNewsPluginMigrate
         if (empty($idList)) {
             return '';
         }
-        $newIdList = array();
-        $categoryRows = $this->getDatabaseConnection()->exec_SELECTgetRows(
+        $idList = implode(',', \Tx_Rnbase_Utility_Strings::intExplode(',', $idList));
+
+        $newIdList = [];
+        $categoryRows = $this->getDatabaseConnection()->doSelect(
             'uid,title,import_id',
             'sys_category',
-            'deleted=0 AND import_source="TT_NEWS_CATEGORY_IMPORT" AND import_id IN('
-            . $this->getDatabaseConnection()->cleanIntList($idList) . ')');
+            [
+                'where' => 'deleted=0 AND import_source="TT_NEWS_CATEGORY_IMPORT" AND import_id IN('. $idList . ')',
+                'enablefieldsoff' => 1,
+            ]
+        );
         foreach ($categoryRows as $row) {
             $newIdList[] = $row['uid'];
         }
@@ -310,22 +351,24 @@ class TtNewsPluginMigrate
      */
     protected function getTtnewsPluginRows()
     {
-        $rows = $this->getDatabaseConnection()->exec_SELECTgetRows(
-            '*',
-            'tt_content',
-            'deleted=0 AND list_type="9" AND CType="list"',
-            '',
-            'sys_language_uid ASC'
+        $rows = $this->getDatabaseConnection()->doSelect(
+            'tt_content.*',
+            ['table'=>'tt_content', 'clause'=>'tt_content JOIN pages ON pages.uid = tt_content.pid'],
+            [
+                'where' => 'tt_content.deleted=0 AND list_type="9" AND CType="list" AND pages.deleted=0',
+                'enablefieldsoff' => 1,
+                'orderby' => 'sys_language_uid ASC',
+            ]
         );
         return $rows;
     }
 
 
     /**
-     * @return \TYPO3\CMS\Core\Database\DatabaseConnection
+     * @return \Tx_Rnbase_Database_Connection
      */
     protected function getDatabaseConnection()
     {
-        return $GLOBALS['TYPO3_DB'];
+        return \Tx_Rnbase_Database_Connection::getInstance();
     }
 }
