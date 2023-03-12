@@ -22,19 +22,33 @@ class NewsImportCommandController extends CommandController
      * Import for EXT:news
      *
      * @cli
+     * @param int $job
+     * @param int $limit
+     * @param string $uids
      */
-    public function runCommand()
+    public function migrateCommand(int $job = -1, int $limit = 0, string $uids='')
     {
         $this->outputDashedLine();
         $jobs = $this->getAvailableJobs();
-        $index = $this->output->select('Which class to import from?', array_values($jobs), null, false, 10);
+        $jobLabels = array_values($jobs);
+        $index = $job;
+        if ($index < 0) {
+            $index = $this->output->select('Which class to import from??', $jobLabels, null, false, 10);
+        } else {
+            $index = $jobLabels[$index] ?? '';
+        }
 
         $class = $this->getChosenClass($jobs, $index);
         /* @var $job ImportJobInterface */
         $job = $this->objectManager->get($class);
 
+        if (method_exists($job, 'getDataProviderService')) {
+            $srv = $job->getDataProviderService();
+            if (method_exists($srv, 'setOptions')) {
+                $srv->setOptions(['limit' => $limit, 'uids' => $uids]);
+            }
+        }
         $info = $job->getInfo();
-
         $this->outputLine('%-20s% -5s ', ['totalRecordCount:', $info['totalRecordCount']]);
         $this->outputLine('%-20s% -5s ', ['runsToComplete:', $info['runsToComplete'],]);
 

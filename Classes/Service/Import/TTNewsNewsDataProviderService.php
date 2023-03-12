@@ -24,7 +24,11 @@ namespace BeechIt\NewsTtnewsimport\Service\Import;
 *  This copyright notice MUST APPEAR in all copies of the script!
 ***************************************************************/
 
+use BeechIt\NewsTtnewsimport\Service\Util\LinkProcessor;
 use GeorgRinger\News\Service\Import\DataProviderServiceInterface;
+use Sys25\RnBase\Database\Connection;
+use Sys25\RnBase\Utility\Strings;
+use Sys25\RnBase\Utility\TSFAL;
 use \TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
@@ -36,6 +40,11 @@ use \TYPO3\CMS\Core\Utility\GeneralUtility;
 class TTNewsNewsDataProviderService implements DataProviderServiceInterface, \TYPO3\CMS\Core\SingletonInterface  {
 
 	protected $importSource = 'TT_NEWS_IMPORT';
+	protected $linkProcessor;
+	public function __construct()
+	{
+		$this->linkProcessor = new LinkProcessor();
+	}
 
 	/**
 	 * Get total record count
@@ -44,21 +53,25 @@ class TTNewsNewsDataProviderService implements DataProviderServiceInterface, \TY
 	 */
 	public function getTotalRecordCount() {
 
-	    $rows = \Tx_Rnbase_Database_Connection::getInstance()->doSelect('count(uid) as cnt', 'tt_news', [
+		$options = [
 	        'enablefieldsoff' => 1,
 	        'where' => 'deleted=0 AND t3ver_oid = 0 AND t3ver_wsid = 0',
-	    ]);
+	    ];
+		if ($uids = $this->getOption('uids')) {
+			$options['where'] = sprintf('%s AND uid IN (%s)', $options['where'], $uids);
+		}
+	    $rows = Connection::getInstance()->doSelect('count(uid) as cnt', 'tt_news', $options);
 	    $count = $rows[0]['cnt'];
-	    
-// 	    $res = $GLOBALS['TYPO3_DB']->exec_SELECTquery('count(*)',
-// 			'tt_news',
-// 			'deleted=0 AND t3ver_oid = 0 AND t3ver_wsid = 0'
-// 		);
 
-// 		list($count) = $GLOBALS['TYPO3_DB']->sql_fetch_row($res);
-// 		$GLOBALS['TYPO3_DB']->sql_free_result($res);
-
+		if ($limit = $this->getOption('limit')) {
+			return $limit;
+		}
 		return (int)$count;
+	}
+
+	private function getOption($name, $default = null)
+	{
+		return $this->options[$name] ?? $default;
 	}
 
 	/**
@@ -71,24 +84,20 @@ class TTNewsNewsDataProviderService implements DataProviderServiceInterface, \TY
 	public function getImportData($offset = 0, $limit = 50) {
 		$importData = [];
 
-// 		$res = $GLOBALS['TYPO3_DB']->exec_SELECTquery('*',
-// 			'tt_news',
-// 			'deleted=0 AND t3ver_oid = 0 AND t3ver_wsid = 0',
-// 			'',
-// 			'sys_language_uid ASC',
-// 			$offset . ',' . $limit
-// 		);
-
-		$rows = \Tx_Rnbase_Database_Connection::getInstance()->doSelect('*', 'tt_news', [
+		$options = [
 		    'enablefieldsoff' => 1,
 		    'where' => 'deleted=0 AND t3ver_oid = 0 AND t3ver_wsid = 0',
 		    'orderby' => 'sys_language_uid ASC',
 		    'offset' => $offset,
 		    'limit' => $limit,
-		]);
-		
-//		while ($row = $GLOBALS['TYPO3_DB']->sql_fetch_assoc($res)) {
-        foreach ($rows as $row) {
+		];
+		if ($uids = $this->getOption('uids')) {
+			$options['where'] = sprintf('%s AND uid IN (%s)', $options['where'], $uids);
+		}
+
+		$rows = Connection::getInstance()->doSelect('*', 'tt_news', $options);
+
+		foreach ($rows as $row) {
 		        
 			$importData[] = array(
 				'pid' => $row['pid'],
@@ -220,6 +229,25 @@ class TTNewsNewsDataProviderService implements DataProviderServiceInterface, \TY
 				$count++;
 			}
 		}
+		if (!empty($row['tx_mktools_fal_images'] ?? '')) {
+			/** @var \TYPO3\CMS\Core\Resource\FileReference[] $files */
+			$files = TSFAL::getReferences('tt_news', $row['uid'], 'tx_mktools_fal_images');
+			$captions = Strings::trimExplode(chr(10), $row['imagecaption'], FALSE);
+			$alts = Strings::trimExplode(chr(10), $row['imagealttext'], FALSE);
+			$titles = Strings::trimExplode(chr(10), $row['imagetitletext'], FALSE);
+			foreach ($files as $fileRef) {
+//print_r(['m'=> $files, 'f' => $fileRef->getOriginalFile(), 'uid' => $row['uid']]);
+				$media[] = array(
+					'title' => $titles[$count] ?? $fileRef->getTitle(),
+					'alt' => $alts[$count] ?? '',
+					'caption' => $captions[$count] ?? '',
+					'image' => $fileRef->getOriginalFile()->getUid(),
+					'showinpreview' => (int)$count == 0
+				);
+				$count++;
+			}
+			print_r(['m'=> $media]);
+		}
 
 		if (!empty($row['image'])) {
 			$images = GeneralUtility::trimExplode(',', $row['image'], TRUE);
@@ -254,28 +282,7 @@ class TTNewsNewsDataProviderService implements DataProviderServiceInterface, \TY
 	 * @return array
 	 */
 	protected function getRelatedLinks($newsLinks) {
-		$links = array();
-
-		if (empty($newsLinks)) {
-			return $links;
-		}
-
-		$newsLinks = str_replace(array('<link ', '</link>'), array('<LINK ', '</LINK>'), $newsLinks);
-
-		$linkList = GeneralUtility::trimExplode('</LINK>', $newsLinks, TRUE);
-		foreach ($linkList as $singleLink) {
-			if (strpos($singleLink, '<LINK') === FALSE) {
-				continue;
-			}
-			$title = substr(strrchr($singleLink, '>'), 1);
-			$uri = str_replace('>' . $title, '', substr(strrchr($singleLink, '<link '), 6));
-			$links[] = array(
-				'uri' => $uri,
-				'title' => $title,
-				'description' => '',
-			);
-		}
-		return $links;
+		return $this->linkProcessor->extractRelatedLinks($newsLinks);
 	}
 
 	/**
@@ -364,4 +371,11 @@ class TTNewsNewsDataProviderService implements DataProviderServiceInterface, \TY
 
 		return $media;
 	}
+
+	private $options = [];
+	public function setOptions(array $options = [])
+	{
+		$this->options = $options;
+	}
+
 }
