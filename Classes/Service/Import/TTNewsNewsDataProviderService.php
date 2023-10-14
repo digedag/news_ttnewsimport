@@ -46,13 +46,16 @@ class TTNewsNewsDataProviderService implements DataProviderServiceInterface, \TY
 		$this->linkProcessor = new LinkProcessor();
 	}
 
-	/**
-	 * Get total record count
-	 *
-	 * @return integer
-	 */
-	public function getTotalRecordCount() {
+	public function getDatabaseCondition()
+	{
+		$options = $this->getBaseSqlOptions();
+		$options['sqlonly'] = 1;
+		$rows = Connection::getInstance()->doSelect('*', 'tt_news', $options);
+		return (string) $rows;
+	}
 
+	private function getBaseSqlOptions()
+	{
 		$options = [
 	        'enablefieldsoff' => 1,
 	        'where' => 'deleted=0 AND t3ver_oid = 0 AND t3ver_wsid = 0',
@@ -60,9 +63,20 @@ class TTNewsNewsDataProviderService implements DataProviderServiceInterface, \TY
 		if ($uids = $this->getOption('uids')) {
 			$options['where'] = sprintf('%s AND uid IN (%s)', $options['where'], $uids);
 		}
-	    $rows = Connection::getInstance()->doSelect('count(uid) as cnt', 'tt_news', $options);
-	    $count = $rows[0]['cnt'];
-
+		if ((bool) $this->getOption('skipMigrated')) {
+			$options['where'] = sprintf('%s AND uid NOT IN (SELECT import_id FROM tx_news_domain_model_news WHERE import_id > 0 AND import_source=\'TT_NEWS_IMPORT\')', $options['where']);
+		}
+		return $options;
+	}
+	/**
+	 * Get total record count
+	 *
+	 * @return integer
+	 */
+	public function getTotalRecordCount() {
+		$options = $this->getBaseSqlOptions();
+		$rows = Connection::getInstance()->doSelect('count(uid) as cnt', 'tt_news', $options);
+		$count = $rows[0]['cnt'];
 		if ($limit = $this->getOption('limit')) {
 			return $limit;
 		}
@@ -84,16 +98,10 @@ class TTNewsNewsDataProviderService implements DataProviderServiceInterface, \TY
 	public function getImportData($offset = 0, $limit = 50) {
 		$importData = [];
 
-		$options = [
-		    'enablefieldsoff' => 1,
-		    'where' => 'deleted=0 AND t3ver_oid = 0 AND t3ver_wsid = 0',
-		    'orderby' => 'sys_language_uid ASC',
-		    'offset' => $offset,
-		    'limit' => $limit,
-		];
-		if ($uids = $this->getOption('uids')) {
-			$options['where'] = sprintf('%s AND uid IN (%s)', $options['where'], $uids);
-		}
+		$options = $this->getBaseSqlOptions();
+		$options['orderby'] = 'uid ASC';
+		$options['offset'] = $offset;
+		$options['limit'] = $limit;
 
 		$rows = Connection::getInstance()->doSelect('*', 'tt_news', $options);
 
@@ -246,7 +254,6 @@ class TTNewsNewsDataProviderService implements DataProviderServiceInterface, \TY
 				);
 				$count++;
 			}
-			print_r(['m'=> $media]);
 		}
 
 		if (!empty($row['image'])) {
@@ -361,7 +368,7 @@ class TTNewsNewsDataProviderService implements DataProviderServiceInterface, \TY
 				foreach ($matches as $url) {
 					$urlInfo = parse_url($url);
 					$media[] = array(
-						'type' => \Tx_News_Domain_Model_Media::MEDIA_TYPE_MULTIMEDIA,
+						'type' => 1, // \Tx_News_Domain_Model_Media::MEDIA_TYPE_MULTIMEDIA,
 						'multimedia' => $url,
 						'title' => $urlInfo['host'],
 					);

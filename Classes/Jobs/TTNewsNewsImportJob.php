@@ -71,4 +71,18 @@ class TTNewsNewsImportJob extends AbstractImportJob
 	{
 		return $this->importDataProviderService;
 	}
+
+    /**
+     * Get job info.
+     *
+     * @return array
+     */
+    public function getInfo()
+    {
+        $info = parent::getInfo();
+        if (method_exists($this->importDataProviderService, 'getDatabaseCondition')) {
+            $info['query'] = $this->importDataProviderService->getDatabaseCondition();
+        }
+        return $info;
+    }
 }

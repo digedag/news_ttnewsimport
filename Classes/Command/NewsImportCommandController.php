@@ -25,9 +25,11 @@ class NewsImportCommandController extends CommandController
      * @param int $job
      * @param int $limit
      * @param string $uids
+     * @param string $skipMigrated
      */
-    public function migrateCommand(int $job = -1, int $limit = 0, string $uids='')
+    public function migrateCommand(int $job = -1, int $limit = 0, string $uids='', string $skipMigrated = 'true')
     {
+        $skipMigrated = filter_var($skipMigrated, FILTER_VALIDATE_BOOLEAN);
         $this->outputDashedLine();
         $jobs = $this->getAvailableJobs();
         $jobLabels = array_values($jobs);
@@ -42,13 +44,17 @@ class NewsImportCommandController extends CommandController
         /* @var $job ImportJobInterface */
         $job = $this->objectManager->get($class);
 
+        $dp = '-';
         if (method_exists($job, 'getDataProviderService')) {
             $srv = $job->getDataProviderService();
+            $dp = get_class($srv);
             if (method_exists($srv, 'setOptions')) {
-                $srv->setOptions(['limit' => $limit, 'uids' => $uids]);
+                $srv->setOptions(['limit' => $limit, 'uids' => $uids, 'skipMigrated' => $skipMigrated]);
             }
         }
         $info = $job->getInfo();
+        $this->outputLine(sprintf('Use job %s with data provider %s', get_class($job), $dp));
+        $this->outputLine('%-20s% -5s ', ['base query:', $info['query'],]);
         $this->outputLine('%-20s% -5s ', ['totalRecordCount:', $info['totalRecordCount']]);
         $this->outputLine('%-20s% -5s ', ['runsToComplete:', $info['runsToComplete'],]);
 
